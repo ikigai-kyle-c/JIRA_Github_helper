@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Jira · GitHub Tag Issue Lookup
 // @namespace    local.jira.github
-// @version      1.0.3
+// @version      1.0.4
 // @description  In Jira, view the PRs, issues and available status transitions added between GitHub tags.
 // @match        https://*.atlassian.net/*
 // @exclude      https://*.atlassian.net/wiki*
@@ -80,8 +80,7 @@
       throw new Error('The Jira request timed out or failed. Check that you are signed in.');
     }
     if (!response.ok) {
-      throw Object.assign(new Error('The Jira request failed (HTTP ' + response.status + '). Check the issue, your sign-in and your permissions.'),
-        {status: response.status});
+      throw new Error('The Jira request failed (HTTP ' + response.status + '). Check the issue, your sign-in and your permissions.');
     }
     try {
       return await response.json();
@@ -106,8 +105,6 @@
         .filter(name => name && name !== details.status))];
     } catch (error) {
       details.error = error.message;
-      // 404: the key does not exist in this Jira, or this account cannot see it.
-      details.notFound = error.status === 404;
     }
     return details;
   }
@@ -130,12 +127,15 @@
     }
     for (const issue of issues) issue.jira = details.get(issue.key);
     for (const section of report.sections) {
-      // Other read failures stay visible: their assignee is unknown.
-      section.issues = section.issues.filter(({jira}) => !jira.notFound
-        && (!onlyMine || jira.error || userId(jira.assignee) === me));
+      // An issue Jira could not read (no status) has an unknown assignee, so it
+      // goes to the review list instead of being shown as an issue or dropped.
+      for (const {key, jira, prs} of section.issues) {
+        if (!jira.status) section.review.push({title: key, reason: jira.error, prs});
+      }
+      section.issues = section.issues.filter(({jira}) => jira.status
+        && (!onlyMine || userId(jira.assignee) === me));
     }
-    const notFound = [...details.values()].filter(detail => detail.notFound).length;
-    return {...report, repo, onlyMine, notFound};
+    return {...report, repo, onlyMine};
   }
 
   async function buildTagReport({ startTag, endTag, tagPattern = '', github, progress = () => {} }) {
@@ -515,8 +515,7 @@
           await saveTabs();
           const report = await runComparison(params, message => { status.textContent = message; });
           renderReport(report, result);
-          status.textContent = 'Finished comparing ' + report.repo + '. Release ranges: ' + report.sections.length + '.'
-            + (report.notFound ? ' Issues not found in Jira and left out: ' + report.notFound + '.' : '');
+          status.textContent = 'Finished comparing ' + report.repo + '. Release ranges: ' + report.sections.length + '.';
         } catch (error) {
           status.className = 'status error';
           status.textContent = String(error?.message || 'Query failed. Try again.');
