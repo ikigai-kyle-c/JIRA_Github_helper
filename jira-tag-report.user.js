@@ -468,6 +468,7 @@
 
       // The token lives in Tampermonkey's storage, which page scripts cannot read.
       const TOKEN_KEY = 'githubToken:' + tab.id;
+      const SEARCH_KEY = 'lastSearch:' + tab.id;
       async function showTokenState() {
         const saved = await GM.getValue(TOKEN_KEY, '');
         token.placeholder = saved ? 'Saved token in use. Type a new one to replace it'
@@ -516,6 +517,11 @@
           const report = await runComparison(params, message => { status.textContent = message; });
           renderReport(report, result);
           status.textContent = 'Finished comparing ' + report.repo + '. Release ranges: ' + report.sections.length + '.';
+          // Keep the result for the next page load, without the assignees' personal details.
+          await GM.setValue(SEARCH_KEY, JSON.stringify({
+            startTag: params.startTag, endTag: params.endTag, tagPattern: params.tagPattern,
+            onlyMine: params.onlyMine, at: Date.now(), report,
+          }, (key, value) => key === 'assignee' ? undefined : value));
         } catch (error) {
           status.className = 'status error';
           status.textContent = String(error?.message || 'Query failed. Try again.');
@@ -523,6 +529,18 @@
           run.disabled = false;
         }
       });
+
+      (async () => {
+        const saved = JSON.parse(await GM.getValue(SEARCH_KEY, 'null'));
+        if (!saved) return;
+        start.value = saved.startTag;
+        end.value = saved.endTag;
+        pattern.value = saved.tagPattern;
+        mine.checked = saved.onlyMine;
+        renderReport(saved.report, result);
+        status.textContent = 'Saved result from ' + new Date(saved.at).toLocaleString()
+          + '. Run Compare tags to refresh it.';
+      })();
       return {view, repoInput: repo};
     }
 
@@ -540,8 +558,9 @@
 
     function showTabs() {
       tabBar.replaceChildren(...tabs.map((tab, index) => {
-        const button = element('button', tab.repo || 'Tab ' + (index + 1), 'tab');
+        const button = element('button', tab.name || tab.repo || 'Tab ' + (index + 1), 'tab');
         button.type = 'button';
+        button.title = 'Double-click to rename';
         button.setAttribute('aria-pressed', String(tab === active));
         button.addEventListener('click', () => { active = tab; showTabs(); });
         return button;
@@ -550,9 +569,19 @@
       for (const tab of tabs) tab.view.hidden = tab !== active;
     }
     // ponytail: last write wins if two browser windows change the tab list at once.
-    const saveTabs = () => GM.setValue('tabs', tabs.map(({id, repo}) => ({id, repo})));
+    const saveTabs = () => GM.setValue('tabs', tabs.map(({id, repo, name}) => ({id, repo, name})));
+    // Listen on the bar: the first click of a double-click rebuilds the buttons.
+    tabBar.addEventListener('dblclick', async event => {
+      const tab = tabs[[...tabBar.children].indexOf(event.target.closest('.tab'))];
+      if (!tab) return;
+      const name = prompt('Tab name (leave empty to use the repo name)', tab.name || '');
+      if (name === null) return;
+      tab.name = name.trim();
+      showTabs();
+      await saveTabs();
+    });
     function openTab(saved) {
-      const tab = {id: saved.id, repo: saved.repo};
+      const tab = {id: saved.id, repo: saved.repo, name: saved.name};
       Object.assign(tab, createTab(tab));
       views.append(tab.view);
       tabs.push(tab);
@@ -572,6 +601,7 @@
       tab.view.remove();
       showTabs();
       await GM.deleteValue('githubToken:' + tab.id);
+      await GM.deleteValue('lastSearch:' + tab.id);
       await saveTabs();
     });
     (async () => {
