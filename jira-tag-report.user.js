@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Jira · GitHub Tag Issue Lookup
 // @namespace    local.jira.github
-// @version      1.0.5
+// @version      1.0.6
 // @description  In Jira, view the PRs, issues and available status transitions added between GitHub tags.
 // @match        https://*.atlassian.net/*
 // @exclude      https://*.atlassian.net/wiki*
@@ -157,69 +157,60 @@
     if (!start || !end) throw new Error(`Tag "${!start ? startTag : endTag}" not found. Check the name and letter case.`);
     if (start === end) return { sections: [], skippedTags: [] };
 
-    const commits = new Map();
-    progress('Comparing the commits between the two tags…');
-    for (let page = 1; ; page++) {
-      const result = await github(`/compare/${start}...${end}?per_page=100&page=${page}`);
-      if (result.status !== 'ahead' || result.merge_base_commit?.sha !== start) {
-        throw new Error('The end tag must descend from the start tag. Check the tag order and the release line.');
-      }
-      const before = commits.size;
-      for (const commit of result.commits) commits.set(commit.sha, commit);
-      if (commits.size === result.total_commits) break;
-      if (commits.size === before || result.commits.length < 100) {
-        throw new Error('Could not fetch the complete commit list from GitHub. Narrow the range and try again.');
-      }
-    }
-
     const glob = (tagPattern || '*').replace(/[.+^${}()|[\]\\]/g, '\\$&')
       .replace(/\*+/g, '.*').replace(/\?/g, '.');
     const matches = new RegExp(`^${glob}$`);
-    const tagNames = new Map();
-    for (const [name, sha] of tags) {
-      if (name !== startTag && name !== endTag && !matches.test(name)) continue;
-      if (sha !== start && !commits.has(sha)) continue;
+    // Version order: 1.39.2 < 1.39.10 < 1.40.0.
+    // ponytail: plain numeric sort, so a pre-release such as 1.40.0-rc1 sorts
+    // after 1.40.0. Leave those out with the tag filter, or parse semver here.
+    const byVersion = (a, b) => a.localeCompare(b, undefined, { numeric: true });
+    const tagNames = new Map([[start, [startTag]], [end, [endTag]]]);
+    for (const name of [...tags.keys()].sort(byVersion)) {
+      if (!matches.test(name) || byVersion(startTag, name) >= 0 || byVersion(name, endTag) >= 0) continue;
+      const sha = tags.get(name);
       if (!tagNames.has(sha)) tagNames.set(sha, []);
       tagNames.get(sha).push(name);
     }
-    for (const names of tagNames.values()) names.sort();
-    // Place the expressly selected name first when several tags name the boundary.
-    for (const [sha, name] of [[start, startTag], [end, endTag]]) {
-      tagNames.set(sha, [name, ...tagNames.get(sha).filter(alias => alias !== name)]);
-    }
+    const boundaries = [...tagNames.keys()].filter(sha => sha !== start && sha !== end).concat(end);
 
-    const boundaries = [];
-    const firstParents = new Set();
-    for (let sha = end; sha !== start; ) {
-      const commit = commits.get(sha);
-      if (!commit || firstParents.has(sha)) {
-        throw new Error('The two tags are not on the same first-parent release line, so commits cannot be assigned to releases in order.');
-      }
-      firstParents.add(sha);
-      if (tagNames.has(sha)) boundaries.push(sha);
-      sha = commit.parents[0]?.sha;
-    }
-    boundaries.reverse();
-    const skippedTags = [...tagNames].filter(([sha]) => sha !== start && !firstParents.has(sha))
-      .flatMap(([, names]) => names).sort();
-
-    // Walk all parents of each boundary in release order. A commit belongs to the
-    // first boundary that reaches it, including changes brought in by a branch merge.
+    // Compare every tag with the one before it. One start...end comparison
+    // would miss patch tags (1.39.x) cut on a release branch, because their
+    // commits are not part of the end tag's history.
+    const commits = new Map();
     const sectionFor = new Map();
-    const sections = boundaries.map((boundary, index) => {
-      const pending = [boundary];
-      while (pending.length) {
-        const sha = pending.pop();
-        if (sectionFor.has(sha) || !commits.has(sha)) continue;
-        sectionFor.set(sha, index);
-        for (const parent of commits.get(sha).parents) pending.push(parent.sha);
+    const sections = [];
+    const skippedTags = [];
+    let previous = start;
+    for (const boundary of boundaries) {
+      progress(`Comparing ${tagNames.get(previous)[0]} → ${tagNames.get(boundary)[0]}…`);
+      const added = new Map();
+      for (let page = 1; ; page++) {
+        const result = await github(`/compare/${previous}...${boundary}?per_page=100&page=${page}`);
+        if (!Array.isArray(result.commits)) throw new Error('GitHub returned a comparison in an unexpected format.');
+        const before = added.size;
+        for (const commit of result.commits) added.set(commit.sha, commit);
+        if (added.size === result.total_commits) break;
+        if (added.size === before || result.commits.length < 100) {
+          throw new Error('Could not fetch the complete commit list from GitHub. Narrow the range and try again.');
+        }
       }
-      return {
-        fromTags: tagNames.get(boundaries[index - 1] || start),
-        toTags: tagNames.get(boundary), issues: [], review: []
-      };
-    });
-    if (sectionFor.size !== commits.size) throw new Error('Could not assign every commit in the range to a release.');
+      // A commit belongs to the first tag that contains it.
+      for (const sha of commits.keys()) added.delete(sha);
+      if (!added.size && boundary !== end) {
+        skippedTags.push(...tagNames.get(boundary));
+        continue;
+      }
+      if (!added.size && !sections.length) {
+        throw new Error('The end tag has no commits that the start tag lacks. Check the tag order.');
+      }
+      for (const [sha, commit] of added) {
+        commits.set(sha, commit);
+        sectionFor.set(sha, sections.length);
+      }
+      sections.push({ fromTags: tagNames.get(previous), toTags: tagNames.get(boundary), issues: [], review: [] });
+      previous = boundary;
+    }
+
 
     const associations = new Map();
     const mergedBySha = new Map();
@@ -679,7 +670,7 @@
       }
       if (report.skippedTags.length) {
         const aside = element('details', undefined, 'hint');
-        aside.append(element('summary', 'Side-branch tags not used as sections (' + report.skippedTags.length + ')'),
+        aside.append(element('summary', 'Tags with no new commits, not shown as sections (' + report.skippedTags.length + ')'),
           element('p', report.skippedTags.join(', '), 'meta'));
         content.append(aside);
       }
