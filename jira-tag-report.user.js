@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Jira · GitHub Tag Issue Lookup
 // @namespace    local.jira.github
-// @version      1.0.2
+// @version      1.0.3
 // @description  In Jira, view the PRs, issues and available status transitions added between GitHub tags.
 // @match        https://*.atlassian.net/*
 // @exclude      https://*.atlassian.net/wiki*
@@ -99,6 +99,7 @@
       details.summary = fields.summary;
       details.assignee = fields.assignee;
       details.status = fields.status.name;
+      details.category = fields.status.statusCategory?.key;
       const {transitions} = await readJira(issuePath + '/transitions');
       if (!Array.isArray(transitions)) throw new Error('Jira did not return the available transitions.');
       details.targets = [...new Set(transitions.map(t => t.to?.name)
@@ -324,46 +325,100 @@
       :host { all: initial; position: fixed; top: 0; right: 0; height: 100vh; display: flex;
         align-items: center; pointer-events: none; z-index: 2147483646;
         font: 14px/1.45 Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        color: #172b4d; color-scheme: light; }
+        color: #172b4d; color-scheme: light;
+        --blue: #0c56ae; --line: #dfe3ea; --muted: #56637a; --soft: #f3f5f8; }
       *, *::before, *::after { box-sizing: border-box; }
       [hidden] { display: none !important; }
       button, input { font: inherit; }
       button { cursor: pointer; color: inherit; }
-      a { color: #0c56ae; text-decoration: underline; text-underline-offset: 2px; }
+      a { color: var(--blue); text-decoration: none; }
+      a:hover { text-decoration: underline; }
       button:focus-visible, input:focus-visible, a:focus-visible, summary:focus-visible {
         outline: 3px solid #388bff; outline-offset: 2px;
       }
-      .run { border: 0; border-radius: 5px; background: #0c56ae; color: #fff;
-        padding: 8px 14px; font-weight: 600; }
+      h2, h3, p, ul { margin: 0; }
+
       .launcher, .panel { pointer-events: auto; }
-      .launcher { flex: none; border: 0; padding: 0; background: #0c56ae; overflow: hidden;
-        border-radius: 8px 0 0 8px; box-shadow: -2px 2px 8px #172b4d33; }
+      .launcher { flex: none; border: 0; padding: 0; background: var(--blue); overflow: hidden;
+        border-radius: 10px 0 0 10px; box-shadow: -2px 2px 10px #172b4d40; }
+      .launcher:hover { filter: brightness(1.15); }
       .launcher img { display: block; width: 44px; height: 44px; }
-      .panel { height: 100vh; width: min(570px, calc(100vw - 44px)); overflow-y: auto;
-        overscroll-behavior: contain; background: #fff; border-left: 1px solid #b6c2cf;
-        box-shadow: -8px 0 32px #172b4d40; padding: 16px; overflow-wrap: anywhere; }
-      header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-      h2, h3, h4, p, ul { margin: 0; }
-      h2 { font-size: 18px; } h3 { font-size: 16px; } h4 { font-size: 14px; }
-      .close { background: transparent; border: 0; border-radius: 4px; padding: 5px 8px; }
-      .close:hover { background: #edf1f5; }
-      form, .two { display: grid; gap: 9px; } form { margin-top: 12px; }
+      .panel { height: 100vh; width: min(520px, calc(100vw - 44px)); overflow-y: auto;
+        overscroll-behavior: contain; background: #fff; border-radius: 14px 0 0 14px;
+        box-shadow: -12px 0 40px #172b4d33; padding: 0 18px 24px; overflow-wrap: anywhere;
+        animation: slide .2s ease-out; }
+      /* The negative margin also carries the launcher, so both slide in together. */
+      @keyframes slide { from { margin-right: calc(-1 * min(520px, 100vw - 44px)); } }
+      @media (prefers-reduced-motion: reduce) { .panel { animation: none; } }
+
+      header { position: sticky; top: 0; z-index: 1; display: flex; align-items: center;
+        justify-content: space-between; gap: 12px; margin: 0 -18px; padding: 14px 18px 10px;
+        background: #fffffff2; }
+      h2 { font-size: 17px; letter-spacing: -.01em; } h3 { font-size: 15px; }
+      .close { background: transparent; border: 0; border-radius: 6px; padding: 5px 9px;
+        color: var(--muted); font-size: 13px; }
+      .close:hover { background: var(--soft); color: #172b4d; }
+
+      .tabs { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 4px;
+        background: var(--soft); border-radius: 9px; }
+      .tab { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        background: transparent; border: 0; border-radius: 6px; padding: 5px 11px; color: var(--muted); }
+      .tab:hover { color: #172b4d; }
+      .tab[aria-pressed="true"] { background: #fff; color: #172b4d; font-weight: 600;
+        box-shadow: 0 1px 3px #172b4d26; }
+      .tabs .close:last-child { margin-left: auto; }
+
+      form, .two { display: grid; gap: 10px; } form { margin-top: 14px; }
       .two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      label { display: grid; gap: 3px; font-weight: 600; }
-      input { min-width: 0; border: 1px solid #8590a2; border-radius: 4px; padding: 6px 8px;
-        background: #fff; color: #172b4d; font-weight: 400; }
-      summary { cursor: pointer; } .advanced label { margin-top: 8px; }
+      label { display: grid; gap: 4px; font-size: 12px; font-weight: 600; color: var(--muted); }
+      input:not([type=checkbox]) { min-width: 0; border: 1px solid #c3cad5; border-radius: 7px;
+        padding: 7px 10px; background: #fff; color: #172b4d; font-size: 14px; font-weight: 400; }
+      input:not([type=checkbox]):focus { outline: 0; border-color: var(--blue);
+        box-shadow: 0 0 0 3px #0c56ae2e; }
+      summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+      .advanced label { margin-top: 10px; }
       .advanced button { margin-top: 8px; text-decoration: underline; }
-      .check { display: flex; align-items: center; gap: 6px; font-weight: 400; }
-      .run { justify-self: start; } .run:disabled { opacity: .6; cursor: progress; }
-      .status, .hint, .meta { color: #44546f; }
-      .status:not(:empty), .hint { margin-top: 8px; }
-      .status.error, .warning { color: #903b00; }
-      .section { padding: 12px 0; border-top: 1px solid #d5dce3; margin-top: 10px; }
-      .issue-list, .review-list { margin: 6px 0 0; padding-inline-start: 19px; }
-      li + li { margin-top: 8px; }
-      .meta { font-size: 13px; } .section h4 { margin-top: 8px; }
-      .pr-links { display: flex; gap: 8px; flex-wrap: wrap; }
+      .check { display: flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 400;
+        color: #172b4d; }
+      .check input { margin: 0; accent-color: var(--blue); }
+      .run { border: 0; border-radius: 8px; background: var(--blue); color: #fff; padding: 9px 16px;
+        font-weight: 600; }
+      .run:hover { filter: brightness(1.12); }
+      .run:disabled { opacity: .6; cursor: progress; filter: none; }
+
+      .status, .hint, .meta, .warning { font-size: 13px; }
+      .status, .hint, .meta { color: var(--muted); }
+      .status:not(:empty) { margin-top: 12px; padding: 8px 11px; border-radius: 8px;
+        background: var(--soft); }
+      .status.error { background: #fff1e6; color: #8a3800; }
+      .hint { margin-top: 10px; }
+      .warning { color: #8a3800; }
+
+      .section { margin-top: 20px; }
+      .section-head { display: flex; align-items: baseline; justify-content: space-between;
+        gap: 10px; padding-bottom: 6px; border-bottom: 2px solid #172b4d; }
+      .section-head .meta { flex: none; }
+      .issue-list, .review-list { list-style: none; margin: 10px 0 0; padding: 0;
+        display: grid; gap: 8px; }
+      .issue { display: grid; gap: 6px; border: 1px solid var(--line); border-radius: 10px;
+        padding: 10px 12px; }
+      .issue:hover { border-color: #b3bdcc; box-shadow: 0 2px 8px #172b4d14; }
+      .issue-top { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+      .key { font-weight: 700; }
+      .badge { border-radius: 4px; padding: 1px 7px; font-size: 11px; font-weight: 700;
+        text-transform: uppercase; letter-spacing: .03em; background: #e4e8ee; color: #3b475c; }
+      .badge.indeterminate { background: #dbe9ff; color: #0a4a99; }
+      .badge.done { background: #d9f2e3; color: #17603a; }
+      .issue-top .meta { margin-left: auto; }
+      .summary { font-weight: 500; }
+      .chips { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; font-size: 12px;
+        color: var(--muted); }
+      .chip { border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px;
+        background: #fff; color: #172b4d; }
+      a.chip { color: var(--blue); }
+      .review { margin-top: 10px; }
+      .review-list li { display: grid; gap: 3px; border-left: 3px solid #f0b37a;
+        padding: 2px 0 2px 10px; font-size: 13px; }
     `;
 
     const panel = element('section', undefined, 'panel');
@@ -378,8 +433,6 @@
     close.type = 'button';
     header.append(heading, close);
 
-    const form = element('form');
-    form.autocomplete = 'off';
     function inputField(parent, name, labelText, placeholder, required = false, type = 'text') {
       const label = element('label', labelText);
       const input = element('input');
@@ -395,48 +448,150 @@
       return input;
     }
 
-    const repo = inputField(form, 'repo', 'GitHub repo', 'owner/repo or GitHub repo URL', true);
-    const tags = element('div', undefined, 'two');
-    form.append(tags);
-    const start = inputField(tags, 'start', 'Start tag (exclusive)', 'v1.2.0', true);
-    const end = inputField(tags, 'end', 'End tag (inclusive)', 'v1.5.0', true);
-    const advanced = element('details', undefined, 'advanced');
-    advanced.append(element('summary', 'Tag filter and private repo access'));
-    const pattern = inputField(advanced, 'pattern', 'Intermediate tag name filter (optional)', 'e.g. v1.*, supports * and ?');
-    const token = inputField(advanced, 'token', 'GitHub token (required for private repos)', '', false, 'password');
-    const forget = element('button', 'Forget saved token', 'close');
-    forget.type = 'button';
-    advanced.append(forget);
-    form.append(advanced);
+    function createTab(tab) {
+      const form = element('form');
+      form.autocomplete = 'off';
+      const repo = inputField(form, 'repo', 'GitHub repo', 'owner/repo or GitHub repo URL', true);
+      repo.value = tab.repo || '';
+      const tags = element('div', undefined, 'two');
+      form.append(tags);
+      const start = inputField(tags, 'start', 'Start tag (exclusive)', 'v1.2.0', true);
+      const end = inputField(tags, 'end', 'End tag (inclusive)', 'v1.5.0', true);
+      const advanced = element('details', undefined, 'advanced');
+      advanced.append(element('summary', 'Tag filter and private repo access'));
+      const pattern = inputField(advanced, 'pattern', 'Intermediate tag name filter (optional)', 'e.g. v1.*, supports * and ?');
+      const token = inputField(advanced, 'token', 'GitHub token (required for private repos)', '', false, 'password');
+      const forget = element('button', 'Forget saved token', 'close');
+      forget.type = 'button';
+      advanced.append(forget);
+      form.append(advanced);
 
-    // The token lives in Tampermonkey's storage, which page scripts cannot read.
-    const TOKEN_KEY = 'githubToken';
-    async function showTokenState() {
-      const saved = await GM.getValue(TOKEN_KEY, '');
-      token.placeholder = saved ? 'Saved token in use. Type a new one to replace it'
-        : 'Saved in Tampermonkey after the first query';
-      forget.hidden = !saved;
+      // The token lives in Tampermonkey's storage, which page scripts cannot read.
+      const TOKEN_KEY = 'githubToken:' + tab.id;
+      async function showTokenState() {
+        const saved = await GM.getValue(TOKEN_KEY, '');
+        token.placeholder = saved ? 'Saved token in use. Type a new one to replace it'
+          : 'Saved in Tampermonkey after the first query';
+        forget.hidden = !saved;
+      }
+      forget.addEventListener('click', async () => {
+        await GM.deleteValue(TOKEN_KEY);
+        await showTokenState();
+      });
+      showTokenState();
+
+      const mineLabel = element('label', undefined, 'check');
+      const mine = element('input');
+      mine.type = 'checkbox';
+      mine.checked = true;
+      mineLabel.append(mine, 'Only issues assigned to me');
+      form.append(mineLabel);
+      const run =element('button', 'Compare tags', 'run');
+      run.type = 'submit';
+      form.append(run);
+
+      const status = element('p', '', 'status');
+      status.setAttribute('role', 'status');
+      const result = element('div');
+      const view = element('div');
+      view.append(form, status, result);
+
+      form.addEventListener('submit', async event => {
+        event.preventDefault();
+        if (run.disabled) return;
+        run.disabled = true;
+        result.replaceChildren();
+        status.className = 'status';
+        status.textContent = 'Querying GitHub…';
+        const params = { repo: repo.value.trim(), startTag: start.value.trim(), endTag: end.value.trim(),
+          tagPattern: pattern.value.trim(), token: token.value.trim(), onlyMine: mine.checked };
+        token.value = '';
+        try {
+          if (params.token) await GM.setValue(TOKEN_KEY, params.token);
+          else params.token = await GM.getValue(TOKEN_KEY, '');
+          await showTokenState();
+          tab.repo = params.repo;
+          showTabs();
+          await saveTabs();
+          const report = await runComparison(params, message => { status.textContent = message; });
+          renderReport(report, result);
+          status.textContent = 'Finished comparing ' + report.repo + '. Release ranges: ' + report.sections.length + '.'
+            + (report.notFound ? ' Issues not found in Jira and left out: ' + report.notFound + '.' : '');
+        } catch (error) {
+          status.className = 'status error';
+          status.textContent = String(error?.message || 'Query failed. Try again.');
+        } finally {
+          run.disabled = false;
+        }
+      });
+      return {view, repoInput: repo};
     }
-    forget.addEventListener('click', async () => {
-      await GM.deleteValue(TOKEN_KEY);
-      await showTokenState();
+
+    // Each tab keeps its own repo, token and results, so several repos or
+    // GitHub accounts can be queried side by side.
+    const tabBar = element('nav', undefined, 'tabs');
+    const views = element('div');
+    const addTab = element('button', '+', 'close');
+    addTab.type = 'button';
+    addTab.title = 'New tab';
+    const removeTab = element('button', 'Remove tab', 'close');
+    removeTab.type = 'button';
+    let tabs = [];
+    let active;
+
+    function showTabs() {
+      tabBar.replaceChildren(...tabs.map((tab, index) => {
+        const button = element('button', tab.repo || 'Tab ' + (index + 1), 'tab');
+        button.type = 'button';
+        button.setAttribute('aria-pressed', String(tab === active));
+        button.addEventListener('click', () => { active = tab; showTabs(); });
+        return button;
+      }), addTab, removeTab);
+      removeTab.hidden = tabs.length < 2;
+      for (const tab of tabs) tab.view.hidden = tab !== active;
+    }
+    // ponytail: last write wins if two browser windows change the tab list at once.
+    const saveTabs = () => GM.setValue('tabs', tabs.map(({id, repo}) => ({id, repo})));
+    function openTab(saved) {
+      const tab = {id: saved.id, repo: saved.repo};
+      Object.assign(tab, createTab(tab));
+      views.append(tab.view);
+      tabs.push(tab);
+      active = tab;
+    }
+    addTab.addEventListener('click', async () => {
+      openTab({id: Date.now()});
+      showTabs();
+      active.repoInput.focus();
+      await saveTabs();
     });
-    showTokenState();
+    removeTab.addEventListener('click', async () => {
+      if (!confirm('Remove this tab and its saved token?')) return;
+      const tab = active;
+      tabs = tabs.filter(other => other !== tab);
+      active = tabs[0];
+      tab.view.remove();
+      showTabs();
+      await GM.deleteValue('githubToken:' + tab.id);
+      await saveTabs();
+    });
+    (async () => {
+      let saved = await GM.getValue('tabs', null);
+      if (!Array.isArray(saved) || !saved.length) {
+        // First run with tabs: carry over the token saved by earlier versions.
+        saved = [{id: 1}];
+        const legacy = await GM.getValue('githubToken', '');
+        if (legacy) {
+          await GM.setValue('githubToken:1', legacy);
+          await GM.deleteValue('githubToken');
+        }
+      }
+      saved.forEach(openTab);
+      active = tabs[0];
+      showTabs();
+    })();
 
-    const mineLabel = element('label', undefined, 'check');
-    const mine = element('input');
-    mine.type = 'checkbox';
-    mine.checked = true;
-    mineLabel.append(mine, 'Only issues assigned to me');
-    form.append(mineLabel);
-    const run =element('button', 'Compare tags', 'run');
-    run.type = 'submit';
-    form.append(run);
-
-    const status = element('p', '', 'status');
-    status.setAttribute('role', 'status');
-    const result = element('div');
-    panel.append(header, form, status, result);
+    panel.append(header, tabBar, views);
     const launcher = element('button', undefined, 'launcher');
     launcher.type = 'button';
     launcher.title = 'Jira issues by GitHub tag';
@@ -452,7 +607,7 @@
     function setOpen(open) {
       panel.hidden = !open;
       launcher.setAttribute('aria-expanded', String(open));
-      if (open) repo.focus();
+      if (open) active?.repoInput.focus();
       else launcher.focus();
     }
     launcher.addEventListener('click', () => setOpen(panel.hidden));
@@ -468,12 +623,13 @@
       }, true);
     }
 
-    function renderReport(report) {
+    function renderReport(report, result) {
       const repoUrl = 'https://github.com/' + report.repo;
       function prLinks(prs) {
-        const links = element('div', undefined, 'pr-links');
+        const links = element('div', undefined, 'chips');
         for (const pr of prs) {
           const anchor = link(repoUrl + '/pull/' + encodeURIComponent(pr.number), 'PR #' + pr.number);
+          anchor.className = 'chip';
           anchor.title = pr.title;
           links.append(anchor);
         }
@@ -483,14 +639,11 @@
       const content = document.createDocumentFragment();
       if (!report.sections.length) {
         content.append(element('p', 'Both tags point to the same commit, so this range has no new changes.', 'hint'));
-      } else {
-        content.append(element('p', 'Each section lists the issues mentioned by its newly included PRs. "First" is relative to the range of this query. The available transitions depend on the permissions of the account signed in to Jira.', 'hint'));
-      }
-      if (report.onlyMine) {
+      } else if (report.onlyMine) {
         content.append(element('p', 'Showing only issues assigned to you. Changes to review are not filtered.', 'hint'));
       }
       if (report.skippedTags.length) {
-        const aside = element('details');
+        const aside = element('details', undefined, 'hint');
         aside.append(element('summary', 'Side-branch tags not used as sections (' + report.skippedTags.length + ')'),
           element('p', report.skippedTags.join(', '), 'meta'));
         content.append(aside);
@@ -498,36 +651,47 @@
 
       for (const section of report.sections) {
         const container = element('section', undefined, 'section');
-        const range = section.fromTags.join(' / ') + ' → ' + section.toTags.join(' / ');
-        container.append(element('h3', range));
-        container.append(element('p', 'Linked issues: ' + section.issues.length + ' · To review: ' + section.review.length, 'meta'));
+        const head = element('div', undefined, 'section-head');
+        head.append(element('h3', section.fromTags.join(' / ') + ' → ' + section.toTags.join(' / ')),
+          element('span', 'Issues: ' + section.issues.length + ' · To review: ' + section.review.length, 'meta'));
+        container.append(head);
+        if (!section.issues.length && !section.review.length) {
+          container.append(element('p', 'Nothing to show in this range.', 'hint'));
+        }
         if (section.issues.length) {
           const list = element('ul', undefined, 'issue-list');
           for (const issue of section.issues) {
-            const item = element('li');
-            const issueUrl = JIRA_BASE + '/browse/' + encodeURIComponent(issue.key);
-            item.append(link(issueUrl, issue.key), ' · ' + (issue.firstSeen ? 'first in this range' : 'follow-up PR'));
             const jira = issue.jira;
-            if (jira?.summary) item.append(element('div', jira.summary));
-            if (jira?.status) {
-              let line = 'Status: ' + jira.status;
-              if (Array.isArray(jira.targets)) line += ' · Can move to: ' + (jira.targets.join(', ') || 'none');
-              item.append(element('div', line, 'meta'));
-            }
+            const item = element('li', undefined, 'issue');
+            const top = element('div', undefined, 'issue-top');
+            const key = link(JIRA_BASE + '/browse/' + encodeURIComponent(issue.key), issue.key);
+            key.className = 'key';
+            top.append(key);
+            if (jira?.status) top.append(element('span', jira.status, 'badge ' + (jira.category || '')));
+            top.append(element('span', issue.firstSeen ? 'First in this range' : 'Follow-up PR', 'meta'));
+            item.append(top);
+            if (jira?.summary) item.append(element('div', jira.summary, 'summary'));
             if (jira?.error) item.append(element('div', jira.error, 'warning'));
+            if (Array.isArray(jira?.targets)) {
+              const moves = element('div', jira.targets.length ? 'Can move to' : 'No transitions available', 'chips');
+              for (const target of jira.targets) moves.append(element('span', target, 'chip'));
+              item.append(moves);
+            }
             item.append(prLinks(issue.prs));
             list.append(item);
           }
           container.append(list);
         }
         if (section.review.length) {
-          const details = element('details');
+          const details = element('details', undefined, 'review');
           details.append(element('summary', 'Changes to review (' + section.review.length + ')'));
           const list = element('ul', undefined, 'review-list');
           for (const row of section.review) {
             const item = element('li');
-            if (row.sha) item.append(link(repoUrl + '/commit/' + encodeURIComponent(row.sha), row.sha.slice(0, 8)), ' ');
-            item.append(row.title, element('div', row.reason, 'warning'));
+            const title = element('div');
+            if (row.sha) title.append(link(repoUrl + '/commit/' + encodeURIComponent(row.sha), row.sha.slice(0, 8)), ' ');
+            title.append(row.title);
+            item.append(title, element('div', row.reason, 'warning'));
             if (row.prs.length) item.append(prLinks(row.prs));
             list.append(item);
           }
@@ -538,32 +702,6 @@
       }
       result.replaceChildren(content);
     }
-
-    form.addEventListener('submit', async event => {
-      event.preventDefault();
-      if (run.disabled) return;
-      run.disabled = true;
-      result.replaceChildren();
-      status.className = 'status';
-      status.textContent = 'Querying GitHub…';
-      const params = { repo: repo.value.trim(), startTag: start.value.trim(), endTag: end.value.trim(),
-        tagPattern: pattern.value.trim(), token: token.value.trim(), onlyMine: mine.checked };
-      token.value = '';
-      try {
-        if (params.token) await GM.setValue(TOKEN_KEY, params.token);
-        else params.token = await GM.getValue(TOKEN_KEY, '');
-        await showTokenState();
-        const report = await runComparison(params, message => { status.textContent = message; });
-        renderReport(report);
-        status.textContent = 'Finished comparing ' + report.repo + '. Release ranges: ' + report.sections.length + '.'
-          + (report.notFound ? ' Issues not found in Jira and left out: ' + report.notFound + '.' : '');
-      } catch (error) {
-        status.className = 'status error';
-        status.textContent = String(error?.message || 'Query failed. Try again.');
-      } finally {
-        run.disabled = false;
-      }
-    });
   }
 
   initUI();
