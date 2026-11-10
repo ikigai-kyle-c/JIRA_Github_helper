@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Jira · GitHub Tag Issue Lookup
 // @namespace    local.jira.github
-// @version      1.0.4
+// @version      1.0.5
 // @description  In Jira, view the PRs, issues and available status transitions added between GitHub tags.
 // @match        https://*.atlassian.net/*
 // @exclude      https://*.atlassian.net/wiki*
@@ -366,7 +366,6 @@
       .tab:hover { color: #172b4d; }
       .tab[aria-pressed="true"] { background: #fff; color: #172b4d; font-weight: 600;
         box-shadow: 0 1px 3px #172b4d26; }
-      .tabs .close:last-child { margin-left: auto; }
 
       form, .two { display: grid; gap: 10px; } form { margin-top: 14px; }
       .two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -551,8 +550,9 @@
     const addTab = element('button', '+', 'close');
     addTab.type = 'button';
     addTab.title = 'New tab';
-    const removeTab = element('button', 'Remove tab', 'close');
+    const removeTab = element('button', '−', 'close');
     removeTab.type = 'button';
+    removeTab.title = 'Remove this tab';
     let tabs = [];
     let active;
 
@@ -561,16 +561,22 @@
         const button = element('button', tab.name || tab.repo || 'Tab ' + (index + 1), 'tab');
         button.type = 'button';
         button.title = 'Double-click to rename';
-        button.setAttribute('aria-pressed', String(tab === active));
-        button.addEventListener('click', () => { active = tab; showTabs(); });
+        button.addEventListener('click', () => { active = tab; markActive(); });
         return button;
       }), addTab, removeTab);
       removeTab.hidden = tabs.length < 2;
-      for (const tab of tabs) tab.view.hidden = tab !== active;
+      markActive();
+    }
+    // Updates the buttons in place: replacing them on a click would stop the
+    // browser from ever reporting a double-click on a tab.
+    function markActive() {
+      tabs.forEach((tab, index) => {
+        tabBar.children[index].setAttribute('aria-pressed', String(tab === active));
+        tab.view.hidden = tab !== active;
+      });
     }
     // ponytail: last write wins if two browser windows change the tab list at once.
     const saveTabs = () => GM.setValue('tabs', tabs.map(({id, repo, name}) => ({id, repo, name})));
-    // Listen on the bar: the first click of a double-click rebuilds the buttons.
     tabBar.addEventListener('dblclick', async event => {
       const tab = tabs[[...tabBar.children].indexOf(event.target.closest('.tab'))];
       if (!tab) return;
