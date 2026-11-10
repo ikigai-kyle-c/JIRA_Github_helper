@@ -7,6 +7,9 @@
 // @exclude      https://*.atlassian.net/wiki*
 // @connect      api.github.com
 // @grant        GM.xmlHttpRequest
+// @grant        GM.getValue
+// @grant        GM.setValue
+// @grant        GM.deleteValue
 // @run-at       document-idle
 // @noframes
 // ==/UserScript==
@@ -347,6 +350,7 @@
       input { min-width: 0; border: 1px solid #8590a2; border-radius: 4px; padding: 6px 8px;
         background: #fff; color: #172b4d; font-weight: 400; }
       summary { cursor: pointer; } .advanced label { margin-top: 8px; }
+      .advanced button { margin-top: 8px; text-decoration: underline; }
       .check { display: flex; align-items: center; gap: 6px; font-weight: 400; }
       .run { justify-self: start; } .run:disabled { opacity: .6; cursor: progress; }
       .status, .hint, .meta { color: #44546f; }
@@ -396,8 +400,26 @@
     const advanced = element('details', undefined, 'advanced');
     advanced.append(element('summary', 'Tag filter and private repo access'));
     const pattern = inputField(advanced, 'pattern', 'Intermediate tag name filter (optional)', 'e.g. v1.*, supports * and ?');
-    const token = inputField(advanced, 'token', 'GitHub token (required for private repos)', 'Used for this query only', false, 'password');
+    const token = inputField(advanced, 'token', 'GitHub token (required for private repos)', '', false, 'password');
+    const forget = element('button', 'Forget saved token', 'close');
+    forget.type = 'button';
+    advanced.append(forget);
     form.append(advanced);
+
+    // The token lives in Tampermonkey's storage, which page scripts cannot read.
+    const TOKEN_KEY = 'githubToken';
+    async function showTokenState() {
+      const saved = await GM.getValue(TOKEN_KEY, '');
+      token.placeholder = saved ? 'Saved token in use. Type a new one to replace it'
+        : 'Saved in Tampermonkey after the first query';
+      forget.hidden = !saved;
+    }
+    forget.addEventListener('click', async () => {
+      await GM.deleteValue(TOKEN_KEY);
+      await showTokenState();
+    });
+    showTokenState();
+
     const mineLabel = element('label', undefined, 'check');
     const mine = element('input');
     mine.type = 'checkbox';
@@ -520,6 +542,9 @@
         tagPattern: pattern.value.trim(), token: token.value.trim(), onlyMine: mine.checked };
       token.value = '';
       try {
+        if (params.token) await GM.setValue(TOKEN_KEY, params.token);
+        else params.token = await GM.getValue(TOKEN_KEY, '');
+        await showTokenState();
         const report = await runComparison(params, message => { status.textContent = message; });
         renderReport(report);
         status.textContent = 'Finished comparing ' + report.repo + '. Release ranges: ' + report.sections.length + '.';
