@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Jira · GitHub Tag Issue Lookup
 // @namespace    local.jira.github
-// @version      1.0.0
+// @version      1.0.1
 // @description  In Jira, view the PRs, issues and available status transitions added between GitHub tags.
 // @match        https://*.atlassian.net/*
 // @exclude      https://*.atlassian.net/wiki*
