@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Jira · GitHub Tag Issue Lookup
 // @namespace    local.jira.github
-// @version      1.0.1
+// @version      1.0.2
 // @description  In Jira, view the PRs, issues and available status transitions added between GitHub tags.
 // @match        https://*.atlassian.net/*
 // @exclude      https://*.atlassian.net/wiki*
@@ -80,7 +80,8 @@
       throw new Error('The Jira request timed out or failed. Check that you are signed in.');
     }
     if (!response.ok) {
-      throw new Error('The Jira request failed (HTTP ' + response.status + '). Check the issue, your sign-in and your permissions.');
+      throw Object.assign(new Error('The Jira request failed (HTTP ' + response.status + '). Check the issue, your sign-in and your permissions.'),
+        {status: response.status});
     }
     try {
       return await response.json();
@@ -104,6 +105,8 @@
         .filter(name => name && name !== details.status))];
     } catch (error) {
       details.error = error.message;
+      // 404: the key does not exist in this Jira, or this account cannot see it.
+      details.notFound = error.status === 404;
     }
     return details;
   }
@@ -125,13 +128,13 @@
       details.set(key, await issueDetails(key));
     }
     for (const issue of issues) issue.jira = details.get(issue.key);
-    if (onlyMine) {
-      for (const section of report.sections) {
-        // Issues that could not be read stay visible: their assignee is unknown.
-        section.issues = section.issues.filter(({jira}) => jira.error || userId(jira.assignee) === me);
-      }
+    for (const section of report.sections) {
+      // Other read failures stay visible: their assignee is unknown.
+      section.issues = section.issues.filter(({jira}) => !jira.notFound
+        && (!onlyMine || jira.error || userId(jira.assignee) === me));
     }
-    return {...report, repo, onlyMine};
+    const notFound = [...details.values()].filter(detail => detail.notFound).length;
+    return {...report, repo, onlyMine, notFound};
   }
 
   async function buildTagReport({ startTag, endTag, tagPattern = '', github, progress = () => {} }) {
@@ -423,6 +426,7 @@
     const mineLabel = element('label', undefined, 'check');
     const mine = element('input');
     mine.type = 'checkbox';
+    mine.checked = true;
     mineLabel.append(mine, 'Only issues assigned to me');
     form.append(mineLabel);
     const run =element('button', 'Compare tags', 'run');
@@ -453,12 +457,16 @@
     }
     launcher.addEventListener('click', () => setOpen(panel.hidden));
     close.addEventListener('click', () => setOpen(false));
-    root.addEventListener('keydown', event => {
-      if (event.key === 'Escape' && !panel.hidden) {
-        event.stopPropagation();
-        setOpen(false);
-      }
-    });
+    // Keys typed in the panel reach the page as events on the host <div>, so
+    // Jira treats them as its own shortcuts ("." opens a menu and takes the
+    // focus). Stop them at the window, before the page's listeners run.
+    for (const type of ['keydown', 'keypress', 'keyup']) {
+      window.addEventListener(type, event => {
+        if (event.target !== host) return;
+        event.stopImmediatePropagation();
+        if (type === 'keydown' && event.key === 'Escape' && !panel.hidden) setOpen(false);
+      }, true);
+    }
 
     function renderReport(report) {
       const repoUrl = 'https://github.com/' + report.repo;
@@ -547,7 +555,8 @@
         await showTokenState();
         const report = await runComparison(params, message => { status.textContent = message; });
         renderReport(report);
-        status.textContent = 'Finished comparing ' + report.repo + '. Release ranges: ' + report.sections.length + '.';
+        status.textContent = 'Finished comparing ' + report.repo + '. Release ranges: ' + report.sections.length + '.'
+          + (report.notFound ? ' Issues not found in Jira and left out: ' + report.notFound + '.' : '');
       } catch (error) {
         status.className = 'status error';
         status.textContent = String(error?.message || 'Query failed. Try again.');
